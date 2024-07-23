@@ -8,6 +8,7 @@ import {IBurnMintERC20} from "../../../shared/token/ERC20/IBurnMintERC20.sol";
 
 import {UpgradeableTokenPool} from "./UpgradeableTokenPool.sol";
 import {UpgradeableBurnMintTokenPoolAbstract} from "./UpgradeableBurnMintTokenPoolAbstract.sol";
+import {RateLimiter} from "../../libraries/RateLimiter.sol";
 
 import {IRouter} from "../../interfaces/IRouter.sol";
 
@@ -17,8 +18,15 @@ import {IRouter} from "../../interfaces/IRouter.sol";
 /// @dev Contract adaptations:
 /// - Implementation of Initializable to allow upgrades
 /// - Move of allowlist and router definition to initialization stage
+/// - Inclusion of rate limit admin who may configure rate limits in addition to owner
 contract UpgradeableBurnMintTokenPool is Initializable, UpgradeableBurnMintTokenPoolAbstract, ITypeAndVersion {
+  error Unauthorized(address caller);
+
   string public constant override typeAndVersion = "BurnMintTokenPool 1.4.0";
+
+  /// @notice The address of the rate limiter admin.
+  /// @dev Can be address(0) if none is configured.
+  address internal s_rateLimitAdmin;
 
   /// @dev Constructor
   /// @param token The bridgeable token that is managed by this pool.
@@ -47,6 +55,34 @@ contract UpgradeableBurnMintTokenPool is Initializable, UpgradeableBurnMintToken
     if (i_allowlistEnabled) {
       _applyAllowListUpdates(new address[](0), allowlist);
     }
+  }
+
+  /// @notice Sets the rate limiter admin address.
+  /// @dev Only callable by the owner.
+  /// @param rateLimitAdmin The new rate limiter admin address.
+  function setRateLimitAdmin(address rateLimitAdmin) external onlyOwner {
+    s_rateLimitAdmin = rateLimitAdmin;
+  }
+
+  /// @notice Gets the rate limiter admin address.
+  function getRateLimitAdmin() external view returns (address) {
+    return s_rateLimitAdmin;
+  }
+
+  /// @notice Sets the chain rate limiter config.
+  /// @dev Only callable by the owner or the rate limiter admin. NOTE: overwrites the normal
+  /// onlyAdmin check in the base implementation to also allow the rate limiter admin.
+  /// @param remoteChainSelector The remote chain selector for which the rate limits apply.
+  /// @param outboundConfig The new outbound rate limiter config.
+  /// @param inboundConfig The new inbound rate limiter config.
+  function setChainRateLimiterConfig(
+    uint64 remoteChainSelector,
+    RateLimiter.Config memory outboundConfig,
+    RateLimiter.Config memory inboundConfig
+  ) external override {
+    if (msg.sender != s_rateLimitAdmin && msg.sender != owner()) revert Unauthorized(msg.sender);
+
+    _setRateLimitConfig(remoteChainSelector, outboundConfig, inboundConfig);
   }
 
   /// @inheritdoc UpgradeableBurnMintTokenPoolAbstract
