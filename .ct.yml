@@ -2,4 +2,4 @@
 target-branch: ccip-develop
 chart-dirs: 'charts'
 check-version-increment: false
-validate-maintainers: false
+validate-maintainers: true
